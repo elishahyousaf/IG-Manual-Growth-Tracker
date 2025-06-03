@@ -1,0 +1,746 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>IG Manual Growth Tracker</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone@7/babel.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    /* Custom font for a modern feel */
+    body {
+      font-family: 'Inter', sans-serif;
+    }
+    /* Basic styling to ensure chart renders correctly and dialog is centered */
+    canvas {
+      max-width: 100%;
+      height: auto;
+    }
+    /* Custom scrollbar for a cleaner look */
+    ::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+    }
+    ::-webkit-scrollbar-track {
+        background: #f0f0f0;
+        border-radius: 10px;
+    }
+    ::-webkit-scrollbar-thumb {
+        background: #cbd5e1; /* slate-300 */
+        border-radius: 10px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+        background: #94a3b8; /* slate-400 */
+    }
+    /* Keyframe for scale-in animation */
+    @keyframes scaleIn {
+        from {
+            transform: scale(0.95);
+            opacity: 0;
+        }
+        to {
+            transform: scale(1);
+            opacity: 1;
+        }
+    }
+    .animate-scale-in {
+        animation: scaleIn 0.3s ease-out forwards;
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect } = React;
+
+    // Mock user roles (in a real app, this would come from auth)
+    // Change to 'member' for non-admin functionality testing
+    const currentUser = { id: 1, role: 'admin', name: 'Team Lead' };
+
+    // Main App Component
+    function App() {
+      const [clients, setClients] = useState([]);
+      const [suggestions, setSuggestions] = useState([]);
+      const [activeTab, setActiveTab] = useState('dashboard');
+
+      // Load data from localStorage on mount
+      useEffect(() => {
+        try {
+          const savedClients = localStorage.getItem('clients');
+          const savedSuggestions = localStorage.getItem('suggestions');
+          if (savedClients) setClients(JSON.parse(savedClients));
+          if (savedSuggestions) setSuggestions(JSON.parse(savedSuggestions));
+        } catch (e) {
+          console.error("Failed to load from localStorage:", e);
+          // Optionally clear localStorage if data is corrupt
+          // localStorage.removeItem('clients');
+          // localStorage.removeItem('suggestions');
+        }
+      }, []);
+
+      // Save data to localStorage on update
+      useEffect(() => {
+        try {
+          localStorage.setItem('clients', JSON.stringify(clients));
+          localStorage.setItem('suggestions', JSON.stringify(suggestions));
+        } catch (e) {
+          console.error("Failed to save to localStorage:", e);
+        }
+      }, [clients, suggestions]);
+
+      return (
+        <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-200 p-6 font-inter text-gray-800">
+          <h1 className="text-4xl font-bold text-center text-blue-800 mb-8 drop-shadow-sm">IG Growth Tracker</h1>
+          <nav className="flex justify-center space-x-4 bg-white p-2 rounded-xl shadow-lg mb-8 max-w-lg mx-auto">
+            <TabButton label="Client Dashboard" isActive={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} />
+            <TabButton label="Team Tips" isActive={activeTab === 'tips'} onClick={() => setActiveTab('tips')} />
+            {currentUser.role === 'admin' && (
+              <TabButton label="Admin Panel" isActive={activeTab === 'admin'} onClick={() => setActiveTab('admin')} />
+            )}
+          </nav>
+
+          {activeTab === 'dashboard' && (
+            <ClientDashboard clients={clients} setClients={setClients} />
+          )}
+          {activeTab === 'tips' && (
+            <TeamTips suggestions={suggestions} setSuggestions={setSuggestions} />
+          )}
+          {activeTab === 'admin' && currentUser.role === 'admin' && (
+            <AdminPanel clients={clients} suggestions={suggestions} setSuggestions={setSuggestions} />
+          )}
+        </div>
+      );
+    }
+
+    // Reusable Tab Button Component
+    function TabButton({ label, isActive, onClick }) {
+      return (
+        <button
+          className={`px-6 py-2 rounded-lg text-lg font-medium transition-all duration-300
+                     ${isActive ? 'bg-blue-600 text-white shadow-md' : 'bg-gray-100 text-gray-700 hover:bg-blue-50 hover:text-blue-600'}`}
+          onClick={onClick}
+        >
+          {label}
+        </button>
+      );
+    }
+
+    // Client Dashboard Component
+    function ClientDashboard({ clients, setClients }) {
+      const [newClient, setNewClient] = useState('');
+      const [selectedClient, setSelectedClient] = useState(null);
+
+      const addClient = () => {
+        if (newClient.trim()) {
+          const client = {
+            id: Date.now(),
+            name: newClient.trim(),
+            screenshots: [],
+            dailyTasks: [],
+            weeklyData: [],
+            notes: '',
+          };
+          setClients([...clients, client]);
+          setNewClient('');
+        }
+      };
+
+      return (
+        <div className="max-w-4xl mx-auto bg-white p-8 rounded-xl shadow-2xl">
+          <div className="mb-6 flex space-x-3">
+            <input
+              type="text"
+              value={newClient}
+              onChange={(e) => setNewClient(e.target.value)}
+              placeholder="Enter new client name"
+              className="p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 flex-grow text-gray-700 outline-none"
+            />
+            <button onClick={addClient} className="bg-blue-600 text-white px-5 py-3 rounded-lg shadow-md hover:bg-blue-700 transition-colors duration-200 font-semibold">
+              Add Client
+            </button>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+            {clients.length === 0 ? (
+              <p className="text-gray-500 text-center col-span-full py-10">No clients added yet. Start by adding one above!</p>
+            ) : (
+              clients.map((client) => (
+                <div key={client.id} className="bg-gray-50 p-5 rounded-lg shadow-sm border border-gray-200 flex justify-between items-center transition-transform hover:scale-[1.02] duration-200">
+                  <h2 className="text-xl font-semibold text-gray-800">{client.name}</h2>
+                  <button
+                    onClick={() => setSelectedClient(client)}
+                    className="bg-green-500 text-white px-4 py-2 rounded-lg shadow-sm hover:bg-green-600 transition-colors duration-200 text-sm font-medium"
+                  >
+                    Manage
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+          {selectedClient && (
+            <ClientDetails
+              client={selectedClient}
+              updateClient={(updated) => {
+                setClients(clients.map((c) => (c.id === updated.id ? updated : c)));
+                setSelectedClient(updated); // Keep the selected client updated in the modal
+              }}
+              close={() => setSelectedClient(null)}
+            />
+          )}
+        </div>
+      );
+    }
+
+    // Client Details Component (Checklist, Weekly Tracker, Screenshots)
+    function ClientDetails({ client, updateClient, close }) {
+      // Initialize selectedDate to today's date in YYYY-MM-DD format
+      const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+      const [weeklyData, setWeeklyData] = useState({
+        followers: '',
+        likes: '',
+        saves: '',
+        shares: '',
+        storyViews: '',
+      });
+      const [notes, setNotes] = useState(client.notes || '');
+
+      const tasks = [
+        { name: 'Scroll feed (3–5 min)', key: 'scroll' },
+        { name: 'Like posts', key: 'like' },
+        { name: 'Comment (5–10)', key: 'comment' },
+        { name: 'Save posts', key: 'save' },
+        { name: 'React to stories', key: 'stories' },
+      ];
+
+      const postChecklist = [
+        { name: 'Shared to Stories', key: 'sharedStories' },
+        { name: 'Used trending music', key: 'trendingMusic' },
+        { name: 'Tagged location', key: 'location' },
+        { name: 'Used hashtags', key: 'hashtags' },
+        { name: 'Tagged relevant accounts', key: 'taggedAccounts' },
+      ];
+
+      const handleTaskToggle = (key, type) => {
+        // Use selectedDate instead of new Date().toISOString().split('T')[0]
+        const dateToUpdate = selectedDate;
+        const updatedTasks = [...(client.dailyTasks || [])];
+        const taskIndex = updatedTasks.findIndex(
+          (t) => t.date === dateToUpdate && t.type === type && t.key === key
+        );
+
+        if (taskIndex === -1) {
+          updatedTasks.push({ date: dateToUpdate, type, key, completed: true });
+        } else {
+          updatedTasks[taskIndex].completed = !updatedTasks[taskIndex].completed;
+        }
+        updateClient({ ...client, dailyTasks: updatedTasks });
+      };
+
+      const handleScreenshotUpload = (e) => {
+        const file = e.target.files[0];
+        if (file) {
+          const reader = new FileReader();
+          reader.onload = () => {
+            const updatedScreenshots = [
+              ...client.screenshots,
+              { id: Date.now(), url: reader.result, date: new Date().toISOString() },
+            ];
+            updateClient({ ...client, screenshots: updatedScreenshots });
+          };
+          reader.readAsDataURL(file);
+          e.target.value = null; // Clear the input so same file can be uploaded again
+        }
+      };
+
+      const addWeeklyData = () => {
+        const parsedData = {};
+        let isValid = true;
+        for (const field of ['followers', 'likes', 'saves', 'shares', 'storyViews']) {
+          const value = parseInt(weeklyData[field], 10);
+          if (isNaN(value)) {
+            isValid = false;
+            alert(`Please enter a valid number for ${field}.`);
+            break;
+          }
+          parsedData[field] = value;
+        }
+
+        if (!isValid) return;
+
+        const newData = {
+          id: Date.now(),
+          date: new Date().toISOString(),
+          ...parsedData,
+        };
+        updateClient({
+          ...client,
+          weeklyData: [...(client.weeklyData || []), newData],
+        });
+        setWeeklyData({ followers: '', likes: '', saves: '', shares: '', storyViews: '' }); // Reset form
+      };
+
+      const saveNotes = () => {
+        updateClient({ ...client, notes });
+      };
+
+      // Chart for weekly progress
+      useEffect(() => {
+        let chartInstance = null;
+
+        if (client.weeklyData && client.weeklyData.length > 0) {
+          const ctx = document.getElementById(`chart-${client.id}`);
+          if (ctx) {
+            if (Chart.getChart(ctx)) {
+                Chart.getChart(ctx).destroy();
+            }
+
+            chartInstance = new Chart(ctx, {
+              type: 'bar',
+              data: {
+                labels: (client.weeklyData || []).map((d) => new Date(d.date).toLocaleDateString()),
+                datasets: [
+                  {
+                    label: 'Followers',
+                    data: (client.weeklyData || []).map((d) => d.followers),
+                    backgroundColor: 'rgba(75, 192, 192, 0.7)',
+                    borderColor: 'rgba(75, 192, 192, 1)',
+                    borderWidth: 1,
+                    borderRadius: 4,
+                  },
+                  {
+                    label: 'Likes',
+                    data: (client.weeklyData || []).map((d) => d.likes),
+                    backgroundColor: 'rgba(255, 159, 64, 0.7)',
+                    borderColor: 'rgba(255, 159, 64, 1)',
+                    borderWidth: 1,
+                    borderRadius: 4,
+                  },
+                  {
+                    label: 'Story Views',
+                    data: (client.weeklyData || []).map((d) => d.storyViews),
+                    backgroundColor: 'rgba(54, 162, 235, 0.7)',
+                    borderColor: 'rgba(54, 162, 235, 1)',
+                    borderWidth: 1,
+                    borderRadius: 4,
+                  },
+                ],
+              },
+              options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                  legend: {
+                    position: 'top',
+                    labels: {
+                      font: {
+                        family: 'Inter',
+                      }
+                    }
+                  },
+                  title: {
+                    display: true,
+                    text: 'Weekly Growth Metrics',
+                    font: {
+                      size: 18,
+                      family: 'Inter',
+                    },
+                    color: '#334155' /* slate-700 */
+                  },
+                },
+                scales: {
+                  y: {
+                    beginAtZero: true,
+                    title: {
+                      display: true,
+                      text: 'Count',
+                      font: {
+                        family: 'Inter',
+                      },
+                      color: '#475569' /* slate-600 */
+                    },
+                    grid: {
+                      color: '#e2e8f0' /* slate-200 */
+                    },
+                    ticks: {
+                      font: {
+                        family: 'Inter',
+                      }
+                    }
+                  },
+                  x: {
+                    title: {
+                      display: true,
+                      text: 'Date',
+                      font: {
+                        family: 'Inter',
+                      },
+                      color: '#475569' /* slate-600 */
+                    },
+                    grid: {
+                      display: false,
+                    },
+                    ticks: {
+                      font: {
+                        family: 'Inter',
+                      }
+                    }
+                  }
+                }
+              },
+            });
+          }
+        }
+        return () => {
+          if (chartInstance) {
+            chartInstance.destroy();
+          }
+        };
+      }, [client.weeklyData, client.id]);
+
+      return (
+        <div className="fixed inset-0 bg-gray-900 bg-opacity-70 flex items-center justify-center p-4 z-50 overflow-y-auto">
+          <div className="bg-white p-8 rounded-xl shadow-2xl w-full max-w-5xl max-h-[95vh] overflow-y-auto relative transform transition-all duration-300 scale-95 opacity-0 animate-scale-in">
+            {/* Close Button */}
+            <button
+              onClick={close}
+              className="absolute top-4 right-4 bg-red-500 hover:bg-red-600 text-white p-2 rounded-full w-9 h-9 flex items-center justify-center text-xl font-bold transition-colors duration-200 shadow-md"
+              aria-label="Close"
+            >
+              &times;
+            </button>
+            <h2 className="text-3xl font-bold text-blue-700 mb-6 text-center">{client.name} Details</h2>
+
+            {/* Date Selection for Daily Tasks */}
+            <div className="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200 flex items-center justify-center">
+                <label htmlFor="daily-date" className="text-lg font-medium text-gray-700 mr-3">View/Edit Tasks for:</label>
+                <input
+                    type="date"
+                    id="daily-date"
+                    value={selectedDate}
+                    onChange={(e) => setSelectedDate(e.target.value)}
+                    className="p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-700 outline-none max-w-xs"
+                />
+            </div>
+
+            {/* Daily Checklist */}
+            <section className="mb-8 p-6 bg-blue-50 rounded-lg shadow-inner border border-blue-100">
+              <h3 className="text-2xl font-semibold text-blue-800 mb-4 flex items-center">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7 mr-2 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 0 002-2M9 5a2 2 0 012-2h2a2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
+                </svg>
+                Daily Checklist
+              </h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {tasks.map((task) => (
+                  <div key={task.key} className="flex items-center bg-white p-3 rounded-md shadow-sm border border-gray-200">
+                    <input
+                      type="checkbox"
+                      checked={
+                        client.dailyTasks?.find(
+                          (t) =>
+                            t.date === selectedDate && // Use selectedDate here
+                            t.type === 'daily' &&
+                            t.key === task.key
+                        )?.completed || false
+                      }
+                      onChange={() => handleTaskToggle(task.key, 'daily')}
+                      className="mr-3 h-5 w-5 text-blue-600 rounded focus:ring-blue-500 accent-blue-600"
+                    />
+                    <span className="text-lg text-gray-700">{task.name}</span>
+                  </div>
+                ))}
+              </div>
+            </section>
+
+            {/* Post Checklist */}
+            <section className="mb-8 p-6 bg-purple-50 rounded-lg shadow-inner border border-purple-100">
+              <h3 className="text-2xl font-semibold text-purple-800 mb-4 flex items-center">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7 mr-2 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+                Post Checklist
+              </h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {postChecklist.map((task) => (
+                  <div key={task.key} className="flex items-center bg-white p-3 rounded-md shadow-sm border border-gray-200">
+                    <input
+                      type="checkbox"
+                      checked={
+                        client.dailyTasks?.find(
+                          (t) =>
+                            t.date === selectedDate && // Use selectedDate here
+                            t.type === 'post' &&
+                            t.key === task.key
+                        )?.completed || false
+                      }
+                      onChange={() => handleTaskToggle(task.key, 'post')}
+                      className="mr-3 h-5 w-5 text-purple-600 rounded focus:ring-purple-500 accent-purple-600"
+                    />
+                    <span className="text-lg text-gray-700">{task.name}</span>
+                  </div>
+                ))}
+              </div>
+            </section>
+
+            {/* Screenshots */}
+            <section className="mb-8 p-6 bg-green-50 rounded-lg shadow-inner border border-green-100">
+              <h3 className="text-2xl font-semibold text-green-800 mb-4 flex items-center">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7 mr-2 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+                Screenshots
+              </h3>
+              <input type="file" accept="image/*" onChange={handleScreenshotUpload} className="mb-4 block w-full text-gray-700 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 transition-colors duration-200 cursor-pointer" />
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 mb-4">
+                {client.screenshots.length === 0 ? (
+                  <p className="text-gray-500 col-span-full">No screenshots uploaded yet.</p>
+                ) : (
+                  client.screenshots.map((shot) => (
+                    <div key={shot.id} className="relative group rounded-lg overflow-hidden shadow-md">
+                      <img
+                        src={shot.url}
+                        alt={`Screenshot from ${new Date(shot.date).toLocaleDateString()}`}
+                        className="w-full h-32 object-cover transition-transform duration-200 group-hover:scale-105"
+                      />
+                      <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black to-transparent text-white text-xs p-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                        {new Date(shot.date).toLocaleDateString()}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </section>
+
+            {/* Weekly Growth Tracker */}
+            <section className="mb-8 p-6 bg-red-50 rounded-lg shadow-inner border border-red-100">
+              <h3 className="text-2xl font-semibold text-red-800 mb-4 flex items-center">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7 mr-2 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M13 7h8m0 0v8m0-8L11 17m-5 2a2 2 0 11-4 0 2 2 0 014 0zM7 19a2 2 0 100 4 2 2 0 000-4z" />
+                </svg>
+                Weekly Growth Tracker
+              </h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 mb-4">
+                {['followers', 'likes', 'saves', 'shares', 'storyViews'].map((field) => (
+                  <input
+                    key={field}
+                    type="number"
+                    placeholder={field.charAt(0).toUpperCase() + field.slice(1)}
+                    value={weeklyData[field]}
+                    onChange={(e) =>
+                      setWeeklyData({ ...weeklyData, [field]: e.target.value })
+                    }
+                    className="p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 text-gray-700 outline-none"
+                    min="0"
+                  />
+                ))}
+                <button onClick={addWeeklyData} className="bg-red-600 text-white px-5 py-3 rounded-lg shadow-md hover:bg-red-700 transition-colors duration-200 font-semibold col-span-full sm:col-span-1">
+                  Add Weekly Data
+                </button>
+              </div>
+              {client.weeklyData && client.weeklyData.length > 0 ? (
+                <div className="h-72 sm:h-80 md:h-96 relative">
+                  <canvas id={`chart-${client.id}`} className="w-full h-full"></canvas>
+                </div>
+              ) : (
+                <p className="text-gray-500 text-center py-4">No weekly growth data available yet. Add some above!</p>
+              )}
+            </section>
+
+            {/* Notes */}
+            <section className="mb-8 p-6 bg-indigo-50 rounded-lg shadow-inner border border-indigo-100">
+              <h3 className="text-2xl font-semibold text-indigo-800 mb-4 flex items-center">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7 mr-2 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                </svg>
+                Notes
+              </h3>
+              <textarea
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                className="w-full p-3 border border-gray-300 rounded-lg mb-4 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-gray-700 outline-none"
+                rows="6"
+                placeholder="Add any specific notes or observations for this client..."
+              />
+              <button onClick={saveNotes} className="bg-indigo-600 text-white px-5 py-3 rounded-lg shadow-md hover:bg-indigo-700 transition-colors duration-200 font-semibold">
+                Save Notes
+              </button>
+            </section>
+          </div>
+        </div>
+      );
+    }
+
+    // Team Tips Component
+    function TeamTips({ suggestions, setSuggestions }) {
+      const [newSuggestion, setNewSuggestion] = useState('');
+
+      const submitSuggestion = () => {
+        if (newSuggestion.trim()) {
+          setSuggestions([
+            ...suggestions,
+            {
+              id: Date.now(),
+              text: newSuggestion.trim(),
+              user: currentUser.name,
+              status: 'pending',
+              date: new Date().toISOString(),
+            },
+          ]);
+          setNewSuggestion('');
+        }
+      };
+
+      return (
+        <div className="max-w-2xl mx-auto bg-white p-8 rounded-xl shadow-2xl">
+          <h2 className="text-3xl font-semibold text-gray-800 mb-6">Team Tips & Suggestions</h2>
+          <textarea
+            value={newSuggestion}
+            onChange={(e) => setNewSuggestion(e.target.value)}
+            placeholder="Share a new idea, tool, or strategy with the team lead..."
+            className="w-full p-3 border border-gray-300 rounded-lg mb-4 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-700 outline-none"
+            rows="5"
+          />
+          <button onClick={submitSuggestion} className="bg-blue-600 text-white px-5 py-3 rounded-lg shadow-md hover:bg-blue-700 transition-colors duration-200 font-semibold mb-8">
+            Submit to Lead
+          </button>
+          <div>
+            <h3 className="text-2xl font-semibold text-gray-800 mb-4">Approved Tips & Pending Suggestions</h3>
+            {suggestions.length === 0 ? (
+              <p className="text-gray-500 text-center py-6">No suggestions submitted yet.</p>
+            ) : (
+              suggestions
+                .filter((s) => s.status === 'approved' || currentUser.role === 'admin')
+                .sort((a, b) => new Date(b.date) - new Date(a.date)) // Sort by newest first
+                .map((suggestion) => (
+                  <div key={suggestion.id} className="bg-gray-50 p-4 rounded-lg shadow-sm mb-3 border border-gray-200">
+                    <p className="text-gray-800 text-lg mb-2">{suggestion.text}</p>
+                    <p className="text-sm text-gray-500">
+                      By <span className="font-medium">{suggestion.user}</span> on{' '}
+                      {new Date(suggestion.date).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}
+                      {currentUser.role === 'admin' && (
+                        <span className={`ml-3 px-3 py-1 rounded-full text-xs font-semibold ${
+                          suggestion.status === 'pending' ? 'bg-yellow-200 text-yellow-800' : 'bg-green-200 text-green-800'
+                        }`}>
+                          {suggestion.status.charAt(0).toUpperCase() + suggestion.status.slice(1)}
+                        </span>
+                      )}
+                    </p>
+                  </div>
+                ))
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    // Admin Panel Component
+    function AdminPanel({ clients, suggestions, setSuggestions }) {
+      const approveSuggestion = (id) => {
+        setSuggestions(
+          suggestions.map((s) => (s.id === id ? { ...s, status: 'approved' } : s))
+        );
+      };
+
+      const pendingSuggestions = suggestions.filter((s) => s.status === 'pending');
+
+      // Group activities by date and then by client for better daily overview
+      const groupedDailyActivity = clients.reduce((acc, client) => {
+        (client.dailyTasks || []).forEach(task => {
+          if (!acc[task.date]) {
+            acc[task.date] = {};
+          }
+          if (!acc[task.date][client.name]) {
+            acc[task.date][client.name] = [];
+          }
+          acc[task.date][client.name].push(task);
+        });
+        return acc;
+      }, {});
+
+      const sortedDates = Object.keys(groupedDailyActivity).sort((a, b) => new Date(b) - new Date(a)); // Newest date first
+
+      return (
+        <div className="max-w-3xl mx-auto bg-white p-8 rounded-xl shadow-2xl">
+          <h2 className="text-3xl font-semibold text-gray-800 mb-6">Admin Panel</h2>
+
+          {/* Pending Suggestions */}
+          <section className="mb-8">
+            <h3 className="text-2xl font-semibold text-gray-800 mb-4 flex items-center">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7 mr-2 text-yellow-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+              Pending Suggestions
+            </h3>
+            <div className="space-y-4">
+              {pendingSuggestions.length === 0 ? (
+                <p className="text-gray-500 text-center py-4">No pending suggestions.</p>
+              ) : (
+                pendingSuggestions.map((suggestion) => (
+                  <div key={suggestion.id} className="bg-yellow-50 p-4 rounded-lg shadow-sm border border-yellow-200 flex justify-between items-center flex-wrap gap-3">
+                    <div>
+                      <p className="text-gray-800 text-lg">{suggestion.text}</p>
+                      <p className="text-sm text-gray-500">By {suggestion.user} on {new Date(suggestion.date).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}</p>
+                    </div>
+                    <button
+                      onClick={() => approveSuggestion(suggestion.id)}
+                      className="bg-green-600 text-white px-4 py-2 rounded-lg shadow-md hover:bg-green-700 transition-colors duration-200 font-semibold text-sm"
+                    >
+                      Approve
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+          </section>
+
+          {/* Team Activity */}
+          <section>
+            <h3 className="text-2xl font-semibold text-gray-800 mb-4 flex items-center">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7 mr-2 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+              </svg>
+              Team Daily Activity
+            </h3>
+            <div className="space-y-6 max-h-96 overflow-y-auto p-4 border border-gray-200 rounded-lg bg-gray-50 shadow-inner">
+              {sortedDates.length === 0 ? (
+                <p className="text-gray-500 text-center py-4">No daily activity recorded yet.</p>
+              ) : (
+                sortedDates.map(date => (
+                  <div key={date} className="bg-white p-4 rounded-lg shadow-sm border border-gray-100">
+                    <h4 className="text-xl font-semibold text-blue-700 mb-3 pb-2 border-b border-gray-200">
+                      {new Date(date).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+                    </h4>
+                    <div className="space-y-3">
+                      {Object.keys(groupedDailyActivity[date]).sort().map(clientName => (
+                        <div key={clientName} className="pl-4 border-l-2 border-blue-300">
+                          <h5 className="text-lg font-medium text-gray-800">{clientName}</h5>
+                          <ul className="list-disc list-inside text-gray-700 text-sm">
+                            {groupedDailyActivity[date][clientName].map((task, idx) => (
+                              <li key={idx} className={`${task.completed ? 'text-green-600' : 'text-red-600'}`}>
+                                {task.type === 'daily' ? 'Daily:' : 'Post:'}{' '}
+                                {task.key.replace(/([A-Z])/g, ' $1').toLowerCase().replace(/^\w/, c => c.toUpperCase())}
+                                {task.completed ? ' (Completed)' : ' (Pending)'}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </section>
+        </div>
+      );
+    }
+
+    // Render the app
+    ReactDOM.render(<App />, document.getElementById('root'));
+  </script>
+</body>
+</html>
