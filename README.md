@@ -1,6 +1,6 @@
 
 # Instagram Manual Growth Tracker by EY
-
+![App Preview](assets/screenshot.png)
 The Instagram Manual Growth Tracker is a clean, minimal, and effective tool designed to help social media managers, influencers, and marketers manually track follower changes, engagement metrics, and account growth over time — without relying on expensive software or complicated dashboards.
 
 Built with simplicity in mind, this tracker allows you to visually monitor growth and activity trends, making data-driven decisions easy.
