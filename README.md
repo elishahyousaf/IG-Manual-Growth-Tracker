@@ -1,1 +1,0 @@
-# IG-Manual-Growth-Tracker
