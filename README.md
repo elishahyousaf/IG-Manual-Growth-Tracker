@@ -19,6 +19,11 @@ Built with simplicity in mind, this tracker allows you to visually monitor growt
 - 📅 Date picker for daily/monthly tracking
 - 🔐 100% local – no data stored or tracked online
 
+## 📸 Screenshot
+
+![App Preview](Screenshot2.png)
+
+
 ## 📸 Use Case
 
 Perfect for:
@@ -55,6 +60,11 @@ To use this tool locally:
    - Or right-click → Open with → Your preferred browser
 
 No installation required. Works offline.
+
+## 📸 Screenshot
+
+![App Preview](Screenshot20.png)
+
 
 ## 🛠️ Tech Stack
 
