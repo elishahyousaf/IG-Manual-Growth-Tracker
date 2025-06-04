@@ -3,13 +3,14 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>IG Manual Growth Tracker</title>
+  <title>IG Manual Growth Tracker by EY</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone@7/babel.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
   <style>
     /* Custom font for a modern feel */
     body {
@@ -50,23 +51,63 @@
     .animate-scale-in {
         animation: scaleIn 0.3s ease-out forwards;
     }
+    /* Apply dark mode styles to scrollbar */
+    html.dark ::-webkit-scrollbar-track {
+        background: #334155; /* slate-700 */
+    }
+    html.dark ::-webkit-scrollbar-thumb {
+        background: #475569; /* slate-600 */
+    }
+    html.dark ::-webkit-scrollbar-thumb:hover {
+        background: #64748b; /* slate-500 */
+    }
   </style>
+  <script>
+    tailwind.config = {
+      darkMode: 'class', // Enable dark mode based on 'dark' class on <html>
+      theme: {
+        extend: {
+          fontFamily: {
+            inter: ['Inter', 'sans-serif'],
+          },
+        }
+      }
+    }
+  </script>
 </head>
-<body>
+<body class="bg-gray-50 dark:bg-gray-900 transition-colors duration-300">
   <div id="root"></div>
 
   <script type="text/babel">
-    const { useState, useEffect } = React;
+    const { useState, useEffect, useCallback } = React;
 
     // Mock user roles (in a real app, this would come from auth)
-    // Change to 'member' for non-admin functionality testing
-    const currentUser = { id: 1, role: 'admin', name: 'Team Lead' };
+    const currentUser = { id: 1, role: 'admin', name: 'Team Lead' }; 
 
     // Main App Component
     function App() {
       const [clients, setClients] = useState([]);
       const [suggestions, setSuggestions] = useState([]);
       const [activeTab, setActiveTab] = useState('dashboard');
+      // Dark mode state, initialized from localStorage or system preference
+      const [isDarkMode, setIsDarkMode] = useState(() => {
+        const savedMode = localStorage.getItem('darkMode');
+        if (savedMode !== null) {
+          return savedMode === 'true';
+        }
+        // Check system preference
+        return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+      });
+
+      // Apply dark mode class to HTML element
+      useEffect(() => {
+        if (isDarkMode) {
+          document.documentElement.classList.add('dark');
+        } else {
+          document.documentElement.classList.remove('dark');
+        }
+        localStorage.setItem('darkMode', isDarkMode);
+      }, [isDarkMode]);
 
       // Load data from localStorage on mount
       useEffect(() => {
@@ -93,36 +134,207 @@
         }
       }, [clients, suggestions]);
 
+      // --- Import/Export Functions (XLSX/CSV) ---
+      const exportClientSummaryToXLSX = useCallback(() => {
+        try {
+          const clientData = clients.map(client => {
+            const latestWeekly = client.weeklyData && client.weeklyData.length > 0
+              ? client.weeklyData.sort((a,b) => new Date(b.date) - new Date(a.date))[0]
+              : {};
+            return {
+              'Client Name': client.name,
+              'Notes': client.notes,
+              'Followers (Latest)': latestWeekly.followers || '',
+              'Likes (Latest)': latestWeekly.likes || '',
+              'Saves (Latest)': latestWeekly.saves || '',
+              'Shares (Latest)': latestWeekly.shares || '',
+              'Story Views (Latest)': latestWeekly.storyViews || '',
+              'Last Weekly Update': latestWeekly.date ? new Date(latestWeekly.date).toLocaleDateString() : '',
+            };
+          });
+
+          const ws = XLSX.utils.json_to_sheet(clientData);
+          const wb = XLSX.utils.book_new();
+          XLSX.utils.book_append_sheet(wb, ws, "Clients Summary");
+          XLSX.writeFile(wb, `IG_Clients_Summary_${new Date().toISOString().split('T')[0]}.xlsx`);
+          alert('Client summary exported successfully!');
+        } catch (error) {
+          console.error('Error exporting client summary:', error);
+          alert('Failed to export client summary. Check console for details.');
+        }
+      }, [clients]);
+
+      const exportSuggestionsToXLSX = useCallback(() => {
+        try {
+          const suggestionData = suggestions.map(s => ({
+            'Suggestion ID': s.id,
+            'Text': s.text,
+            'Submitted By': s.user,
+            'Status': s.status,
+            'Date': new Date(s.date).toLocaleDateString(),
+          }));
+
+          const ws = XLSX.utils.json_to_sheet(suggestionData);
+          const wb = XLSX.utils.book_new();
+          XLSX.utils.book_append_sheet(wb, ws, "Suggestions");
+          XLSX.writeFile(wb, `IG_Suggestions_${new Date().toISOString().split('T')[0]}.xlsx`);
+          alert('Suggestions exported successfully!');
+        } catch (error) {
+          console.error('Error exporting suggestions:', error);
+          alert('Failed to export suggestions. Check console for details.');
+        }
+      }, [suggestions]);
+
+      const importFromXLSX = useCallback((event) => {
+        const file = event.target.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          try {
+            const data = new Uint8Array(e.target.result);
+            const workbook = XLSX.read(data, { type: 'array' });
+            const firstSheetName = workbook.SheetNames[0];
+            const worksheet = workbook.Sheets[firstSheetName];
+
+            // Convert to JSON (array of arrays with header: 1 for raw values)
+            const rawData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+
+            if (!rawData || rawData.length === 0) {
+              alert('The imported file is empty or could not be read.');
+              return;
+            }
+
+            const headers = rawData[0]; // Assume first row is headers
+            const rows = rawData.slice(1); // Actual data rows
+
+            let importedClients = [];
+            let importedSuggestions = [];
+
+            // Simple heuristic to determine file type based on headers
+            if (headers.includes('Client Name') && headers.includes('Notes')) {
+              if (window.confirm("This looks like CLIENTS data. Importing will overwrite ALL EXISTING CLIENTS data. Are you sure?")) {
+                importedClients = rows.map((row, index) => {
+                  const client = {
+                    id: Date.now() + index, // Assign a new unique ID
+                    name: row[headers.indexOf('Client Name')] || 'Unnamed Client',
+                    notes: row[headers.indexOf('Notes')] || '',
+                    screenshots: [], // Can't import images via CSV/XLSX easily
+                    dailyTasks: [], // Can't import daily tasks easily from summary
+                    weeklyData: [], // Rebuild weekly data from latest if available
+                  };
+                  // Attempt to import latest weekly data if columns exist
+                  const latestFollowers = parseInt(row[headers.indexOf('Followers (Latest)')], 10);
+                  const latestLikes = parseInt(row[headers.indexOf('Likes (Latest)')], 10);
+                  const latestStoryViews = parseInt(row[headers.indexOf('Story Views (Latest)')], 10);
+                  const latestSaves = parseInt(row[headers.indexOf('Saves (Latest)')], 10);
+                  const latestShares = parseInt(row[headers.indexOf('Shares (Latest)')], 10);
+                  const latestDate = row[headers.indexOf('Last Weekly Update')] ? new Date(row[headers.indexOf('Last Weekly Update')]).toISOString() : new Date().toISOString();
+
+                  if (!isNaN(latestFollowers) || !isNaN(latestLikes) || !isNaN(latestStoryViews) || !isNaN(latestSaves) || !isNaN(latestShares)) {
+                    client.weeklyData.push({
+                      id: Date.now() + index + 1000,
+                      date: latestDate,
+                      followers: isNaN(latestFollowers) ? 0 : latestFollowers,
+                      likes: isNaN(latestLikes) ? 0 : latestLikes,
+                      saves: isNaN(latestSaves) ? 0 : latestSaves,
+                      shares: isNaN(latestShares) ? 0 : latestShares,
+                      storyViews: isNaN(latestStoryViews) ? 0 : latestStoryViews,
+                    });
+                  }
+                  return client;
+                });
+                setClients(importedClients);
+                localStorage.setItem('clients', JSON.stringify(importedClients));
+                alert('Clients data imported successfully! The page will now reload.');
+                window.location.reload();
+              }
+            } else if (headers.includes('Suggestion ID') && headers.includes('Text')) {
+                if (window.confirm("This looks like SUGGESTIONS data. Importing will overwrite ALL EXISTING SUGGESTIONS data. Are you sure?")) {
+                    importedSuggestions = rows.map((row, index) => ({
+                        id: row[headers.indexOf('Suggestion ID')] || Date.now() + index,
+                        text: row[headers.indexOf('Text')] || '',
+                        user: row[headers.indexOf('Submitted By')] || 'Unknown',
+                        status: row[headers.indexOf('Status')] || 'pending',
+                        date: row[headers.indexOf('Date')] ? new Date(row[headers.indexOf('Date')]).toISOString() : new Date().toISOString(),
+                    }));
+                    setSuggestions(importedSuggestions);
+                    localStorage.setItem('suggestions', JSON.stringify(importedSuggestions));
+                    alert('Suggestions data imported successfully! The page will now reload.');
+                    window.location.reload();
+                }
+            } else {
+              alert('Could not determine data type from headers. Please ensure the file is a valid "Client Summary" or "Suggestions" export.');
+            }
+
+          } catch (error) {
+            console.error('Error importing file:', error);
+            alert('Failed to import file. Please check file format and console for errors.');
+          } finally {
+            event.target.value = null; // Clear file input
+          }
+        };
+        reader.readAsArrayBuffer(file);
+      }, [setClients, setSuggestions]); // Dependencies for useCallback
+      // --- End Import/Export Functions (XLSX/CSV) ---
+
+
       return (
-        <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-200 p-6 font-inter text-gray-800">
-          <h1 className="text-4xl font-bold text-center text-blue-800 mb-8 drop-shadow-sm">IG Growth Tracker</h1>
-          <nav className="flex justify-center space-x-4 bg-white p-2 rounded-xl shadow-lg mb-8 max-w-lg mx-auto">
-            <TabButton label="Client Dashboard" isActive={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} />
-            <TabButton label="Team Tips" isActive={activeTab === 'tips'} onClick={() => setActiveTab('tips')} />
+        <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-200 dark:from-gray-800 dark:to-gray-950 p-6 font-inter text-gray-800 dark:text-gray-200 transition-colors duration-300">
+          <h1 className="text-4xl font-bold text-center text-blue-800 dark:text-blue-400 mb-8 drop-shadow-sm">IG Growth Tracker <span className="text-blue-600 dark:text-blue-300">by EY</span></h1>
+          <nav className="flex justify-center space-x-4 bg-white dark:bg-gray-800 p-2 rounded-xl shadow-lg dark:shadow-xl mb-8 max-w-lg mx-auto">
+            <TabButton label="Client Dashboard" isActive={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} isDarkMode={isDarkMode} />
+            <TabButton label="Team Tips" isActive={activeTab === 'tips'} onClick={() => setActiveTab('tips')} isDarkMode={isDarkMode} />
             {currentUser.role === 'admin' && (
-              <TabButton label="Admin Panel" isActive={activeTab === 'admin'} onClick={() => setActiveTab('admin')} />
+              <TabButton label="Admin Panel" isActive={activeTab === 'admin'} onClick={() => setActiveTab('admin')} isDarkMode={isDarkMode} />
             )}
+            <button
+              onClick={() => setIsDarkMode(!isDarkMode)}
+              className="p-2 rounded-lg text-lg transition-colors duration-300
+                         bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600 shadow-md flex items-center justify-center"
+              title={isDarkMode ? "Switch to Light Mode" : "Switch to Dark Mode"}
+            >
+              {isDarkMode ? (
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" viewBox="0 0 20 20" fill="currentColor">
+                  <path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z" />
+                </svg>
+              ) : (
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.459 4.293a1 1 0 01-1.414 1.414L10 15.414l-2.121 2.121a1 1 0 01-1.414-1.414L8.586 14l-2.121-2.121a1 1 0 011.414-1.414L10 12.586l2.121-2.121a1 1 0 011.414 1.414L11.414 14l2.121 2.121zM15 10a1 1 0 110-2h1a1 1 0 110 2h-1zm-9 0a1 1 0 110-2H4a1 1 0 110 2h1z" clipRule="evenodd" />
+                </svg>
+              )}
+            </button>
           </nav>
 
           {activeTab === 'dashboard' && (
-            <ClientDashboard clients={clients} setClients={setClients} />
+            <ClientDashboard clients={clients} setClients={setClients} isDarkMode={isDarkMode} />
           )}
           {activeTab === 'tips' && (
-            <TeamTips suggestions={suggestions} setSuggestions={setSuggestions} />
+            <TeamTips suggestions={suggestions} setSuggestions={setSuggestions} isDarkMode={isDarkMode} />
           )}
           {activeTab === 'admin' && currentUser.role === 'admin' && (
-            <AdminPanel clients={clients} suggestions={suggestions} setSuggestions={setSuggestions} />
+            <AdminPanel 
+              clients={clients} 
+              suggestions={suggestions} 
+              setSuggestions={setSuggestions}
+              exportClientSummaryToXLSX={exportClientSummaryToXLSX}
+              exportSuggestionsToXLSX={exportSuggestionsToXLSX}
+              importFromXLSX={importFromXLSX}
+              isDarkMode={isDarkMode}
+            />
           )}
         </div>
       );
     }
 
     // Reusable Tab Button Component
-    function TabButton({ label, isActive, onClick }) {
+    function TabButton({ label, isActive, onClick, isDarkMode }) {
+      const activeClasses = `bg-blue-600 text-white shadow-md ${isDarkMode ? 'dark:bg-blue-700 dark:text-white' : ''}`;
+      const inactiveClasses = `bg-gray-100 text-gray-700 hover:bg-blue-50 hover:text-blue-600 ${isDarkMode ? 'dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600 dark:hover:text-blue-300' : ''}`;
+
       return (
         <button
-          className={`px-6 py-2 rounded-lg text-lg font-medium transition-all duration-300
-                     ${isActive ? 'bg-blue-600 text-white shadow-md' : 'bg-gray-100 text-gray-700 hover:bg-blue-50 hover:text-blue-600'}`}
+          className={`px-6 py-2 rounded-lg text-lg font-medium transition-all duration-300 ${isActive ? activeClasses : inactiveClasses}`}
           onClick={onClick}
         >
           {label}
@@ -131,7 +343,7 @@
     }
 
     // Client Dashboard Component
-    function ClientDashboard({ clients, setClients }) {
+    function ClientDashboard({ clients, setClients, isDarkMode }) {
       const [newClient, setNewClient] = useState('');
       const [selectedClient, setSelectedClient] = useState(null);
 
@@ -151,14 +363,14 @@
       };
 
       return (
-        <div className="max-w-4xl mx-auto bg-white p-8 rounded-xl shadow-2xl">
+        <div className="max-w-4xl mx-auto bg-white dark:bg-gray-800 p-8 rounded-xl shadow-2xl dark:shadow-none transition-colors duration-300">
           <div className="mb-6 flex space-x-3">
             <input
               type="text"
               value={newClient}
               onChange={(e) => setNewClient(e.target.value)}
               placeholder="Enter new client name"
-              className="p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 flex-grow text-gray-700 outline-none"
+              className="p-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 flex-grow text-gray-700 dark:text-gray-200 dark:bg-gray-700 outline-none"
             />
             <button onClick={addClient} className="bg-blue-600 text-white px-5 py-3 rounded-lg shadow-md hover:bg-blue-700 transition-colors duration-200 font-semibold">
               Add Client
@@ -166,11 +378,11 @@
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
             {clients.length === 0 ? (
-              <p className="text-gray-500 text-center col-span-full py-10">No clients added yet. Start by adding one above!</p>
+              <p className="text-gray-500 dark:text-gray-400 text-center col-span-full py-10">No clients added yet. Start by adding one above!</p>
             ) : (
               clients.map((client) => (
-                <div key={client.id} className="bg-gray-50 p-5 rounded-lg shadow-sm border border-gray-200 flex justify-between items-center transition-transform hover:scale-[1.02] duration-200">
-                  <h2 className="text-xl font-semibold text-gray-800">{client.name}</h2>
+                <div key={client.id} className="bg-gray-50 dark:bg-gray-700 p-5 rounded-lg shadow-sm dark:shadow-none border border-gray-200 dark:border-gray-600 flex justify-between items-center transition-transform hover:scale-[1.02] duration-200">
+                  <h2 className="text-xl font-semibold text-gray-800 dark:text-gray-100">{client.name}</h2>
                   <button
                     onClick={() => setSelectedClient(client)}
                     className="bg-green-500 text-white px-4 py-2 rounded-lg shadow-sm hover:bg-green-600 transition-colors duration-200 text-sm font-medium"
@@ -189,6 +401,7 @@
                 setSelectedClient(updated); // Keep the selected client updated in the modal
               }}
               close={() => setSelectedClient(null)}
+              isDarkMode={isDarkMode}
             />
           )}
         </div>
@@ -196,8 +409,8 @@
     }
 
     // Client Details Component (Checklist, Weekly Tracker, Screenshots)
-    function ClientDetails({ client, updateClient, close }) {
-      // Initialize selectedDate to today's date in YYYY-MM-DD format
+    function ClientDetails({ client, updateClient, close, isDarkMode }) {
+      // Initialize selectedDate to today's date in-MM-DD format
       const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
       const [weeklyData, setWeeklyData] = useState({
         followers: '',
@@ -225,7 +438,6 @@
       ];
 
       const handleTaskToggle = (key, type) => {
-        // Use selectedDate instead of new Date().toISOString().split('T')[0]
         const dateToUpdate = selectedDate;
         const updatedTasks = [...(client.dailyTasks || [])];
         const taskIndex = updatedTasks.findIndex(
@@ -233,9 +445,12 @@
         );
 
         if (taskIndex === -1) {
-          updatedTasks.push({ date: dateToUpdate, type, key, completed: true });
+          // Add new task with user name
+          updatedTasks.push({ date: dateToUpdate, type, key, completed: true, userName: currentUser.name });
         } else {
+          // Toggle existing task, update completed status and user name
           updatedTasks[taskIndex].completed = !updatedTasks[taskIndex].completed;
+          updatedTasks[taskIndex].userName = currentUser.name; // Update user name on last action
         }
         updateClient({ ...client, dailyTasks: updatedTasks });
       };
@@ -298,6 +513,11 @@
                 Chart.getChart(ctx).destroy();
             }
 
+            // Define colors based on dark mode
+            const textColor = isDarkMode ? '#e2e8f0' : '#334155'; // slate-200 / slate-700
+            const gridColor = isDarkMode ? '#475569' : '#e2e8f0'; // slate-600 / slate-200
+            const titleColor = isDarkMode ? '#cbd5e1' : '#334155'; // slate-300 / slate-700
+
             chartInstance = new Chart(ctx, {
               type: 'bar',
               data: {
@@ -338,7 +558,9 @@
                     labels: {
                       font: {
                         family: 'Inter',
-                      }
+                        color: textColor, // Apply text color
+                      },
+                      color: textColor, // Apply text color
                     }
                   },
                   title: {
@@ -347,8 +569,9 @@
                     font: {
                       size: 18,
                       family: 'Inter',
+                      color: titleColor, // Apply title color
                     },
-                    color: '#334155' /* slate-700 */
+                    color: titleColor, // Apply title color
                   },
                 },
                 scales: {
@@ -359,13 +582,15 @@
                       text: 'Count',
                       font: {
                         family: 'Inter',
+                        color: textColor, // Apply text color
                       },
-                      color: '#475569' /* slate-600 */
+                      color: textColor, // Apply text color
                     },
                     grid: {
-                      color: '#e2e8f0' /* slate-200 */
+                      color: gridColor, // Apply grid color
                     },
                     ticks: {
+                      color: textColor, // Apply text color
                       font: {
                         family: 'Inter',
                       }
@@ -377,13 +602,15 @@
                       text: 'Date',
                       font: {
                         family: 'Inter',
+                        color: textColor, // Apply text color
                       },
-                      color: '#475569' /* slate-600 */
+                      color: textColor, // Apply text color
                     },
                     grid: {
                       display: false,
                     },
                     ticks: {
+                      color: textColor, // Apply text color
                       font: {
                         family: 'Inter',
                       }
@@ -399,11 +626,11 @@
             chartInstance.destroy();
           }
         };
-      }, [client.weeklyData, client.id]);
+      }, [client.weeklyData, client.id, isDarkMode]); // Re-render chart on dark mode change
 
       return (
         <div className="fixed inset-0 bg-gray-900 bg-opacity-70 flex items-center justify-center p-4 z-50 overflow-y-auto">
-          <div className="bg-white p-8 rounded-xl shadow-2xl w-full max-w-5xl max-h-[95vh] overflow-y-auto relative transform transition-all duration-300 scale-95 opacity-0 animate-scale-in">
+          <div className="bg-white dark:bg-gray-800 p-8 rounded-xl shadow-2xl dark:shadow-none w-full max-w-5xl max-h-[95vh] overflow-y-auto relative transform transition-all duration-300 scale-95 opacity-0 animate-scale-in">
             {/* Close Button */}
             <button
               onClick={close}
@@ -412,92 +639,92 @@
             >
               &times;
             </button>
-            <h2 className="text-3xl font-bold text-blue-700 mb-6 text-center">{client.name} Details</h2>
+            <h2 className="text-3xl font-bold text-blue-700 dark:text-blue-400 mb-6 text-center">{client.name} Details</h2>
 
             {/* Date Selection for Daily Tasks */}
-            <div className="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200 flex items-center justify-center">
-                <label htmlFor="daily-date" className="text-lg font-medium text-gray-700 mr-3">View/Edit Tasks for:</label>
+            <div className="mb-6 p-4 bg-gray-50 dark:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600 flex items-center justify-center">
+                <label htmlFor="daily-date" className="text-lg font-medium text-gray-700 dark:text-gray-200 mr-3">View/Edit Tasks for:</label>
                 <input
                     type="date"
                     id="daily-date"
                     value={selectedDate}
                     onChange={(e) => setSelectedDate(e.target.value)}
-                    className="p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-700 outline-none max-w-xs"
+                    className="p-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-700 dark:text-gray-200 dark:bg-gray-600 outline-none max-w-xs"
                 />
             </div>
 
             {/* Daily Checklist */}
-            <section className="mb-8 p-6 bg-blue-50 rounded-lg shadow-inner border border-blue-100">
-              <h3 className="text-2xl font-semibold text-blue-800 mb-4 flex items-center">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7 mr-2 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+            <section className="mb-8 p-6 bg-blue-50 dark:bg-blue-900/20 rounded-lg shadow-inner border border-blue-100 dark:border-blue-900">
+              <h3 className="text-2xl font-semibold text-blue-800 dark:text-blue-300 mb-4 flex items-center">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7 mr-2 text-blue-600 dark:text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 0 002-2M9 5a2 2 0 012-2h2a2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
                 </svg>
                 Daily Checklist
               </h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {tasks.map((task) => (
-                  <div key={task.key} className="flex items-center bg-white p-3 rounded-md shadow-sm border border-gray-200">
+                  <div key={task.key} className="flex items-center bg-white dark:bg-gray-700 p-3 rounded-md shadow-sm dark:shadow-none border border-gray-200 dark:border-gray-600">
                     <input
                       type="checkbox"
                       checked={
                         client.dailyTasks?.find(
                           (t) =>
-                            t.date === selectedDate && // Use selectedDate here
+                            t.date === selectedDate && 
                             t.type === 'daily' &&
                             t.key === task.key
                         )?.completed || false
                       }
                       onChange={() => handleTaskToggle(task.key, 'daily')}
-                      className="mr-3 h-5 w-5 text-blue-600 rounded focus:ring-blue-500 accent-blue-600"
+                      className="mr-3 h-5 w-5 text-blue-600 rounded focus:ring-blue-500 accent-blue-600 dark:accent-blue-400"
                     />
-                    <span className="text-lg text-gray-700">{task.name}</span>
+                    <span className="text-lg text-gray-700 dark:text-gray-200">{task.name}</span>
                   </div>
                 ))}
               </div>
             </section>
 
             {/* Post Checklist */}
-            <section className="mb-8 p-6 bg-purple-50 rounded-lg shadow-inner border border-purple-100">
-              <h3 className="text-2xl font-semibold text-purple-800 mb-4 flex items-center">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7 mr-2 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+            <section className="mb-8 p-6 bg-purple-50 dark:bg-purple-900/20 rounded-lg shadow-inner border border-purple-100 dark:border-purple-900">
+              <h3 className="text-2xl font-semibold text-purple-800 dark:text-purple-300 mb-4 flex items-center">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7 mr-2 text-purple-600 dark:text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                 </svg>
                 Post Checklist
               </h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {postChecklist.map((task) => (
-                  <div key={task.key} className="flex items-center bg-white p-3 rounded-md shadow-sm border border-gray-200">
+                  <div key={task.key} className="flex items-center bg-white dark:bg-gray-700 p-3 rounded-md shadow-sm dark:shadow-none border border-gray-200 dark:border-gray-600">
                     <input
                       type="checkbox"
                       checked={
                         client.dailyTasks?.find(
                           (t) =>
-                            t.date === selectedDate && // Use selectedDate here
+                            t.date === selectedDate && 
                             t.type === 'post' &&
                             t.key === task.key
                         )?.completed || false
                       }
                       onChange={() => handleTaskToggle(task.key, 'post')}
-                      className="mr-3 h-5 w-5 text-purple-600 rounded focus:ring-purple-500 accent-purple-600"
+                      className="mr-3 h-5 w-5 text-purple-600 rounded focus:ring-purple-500 accent-purple-600 dark:accent-purple-400"
                     />
-                    <span className="text-lg text-gray-700">{task.name}</span>
+                    <span className="text-lg text-gray-700 dark:text-gray-200">{task.name}</span>
                   </div>
                 ))}
               </div>
             </section>
 
             {/* Screenshots */}
-            <section className="mb-8 p-6 bg-green-50 rounded-lg shadow-inner border border-green-100">
-              <h3 className="text-2xl font-semibold text-green-800 mb-4 flex items-center">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7 mr-2 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+            <section className="mb-8 p-6 bg-green-50 dark:bg-green-900/20 rounded-lg shadow-inner border border-green-100 dark:border-green-900">
+              <h3 className="text-2xl font-semibold text-green-800 dark:text-green-300 mb-4 flex items-center">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7 mr-2 text-green-600 dark:text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                 </svg>
                 Screenshots
               </h3>
-              <input type="file" accept="image/*" onChange={handleScreenshotUpload} className="mb-4 block w-full text-gray-700 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 transition-colors duration-200 cursor-pointer" />
+              <input type="file" accept="image/*" onChange={handleScreenshotUpload} className="mb-4 block w-full text-gray-700 dark:text-gray-200 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-50 dark:file:bg-blue-800 file:text-blue-700 dark:file:text-blue-100 hover:file:bg-blue-100 dark:hover:file:bg-blue-700 transition-colors duration-200 cursor-pointer" />
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 mb-4">
                 {client.screenshots.length === 0 ? (
-                  <p className="text-gray-500 col-span-full">No screenshots uploaded yet.</p>
+                  <p className="text-gray-500 dark:text-gray-400 col-span-full">No screenshots uploaded yet.</p>
                 ) : (
                   client.screenshots.map((shot) => (
                     <div key={shot.id} className="relative group rounded-lg overflow-hidden shadow-md">
@@ -516,9 +743,9 @@
             </section>
 
             {/* Weekly Growth Tracker */}
-            <section className="mb-8 p-6 bg-red-50 rounded-lg shadow-inner border border-red-100">
-              <h3 className="text-2xl font-semibold text-red-800 mb-4 flex items-center">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7 mr-2 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+            <section className="mb-8 p-6 bg-red-50 dark:bg-red-900/20 rounded-lg shadow-inner border border-red-100 dark:border-red-900">
+              <h3 className="text-2xl font-semibold text-red-800 dark:text-red-300 mb-4 flex items-center">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7 mr-2 text-red-600 dark:text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M13 7h8m0 0v8m0-8L11 17m-5 2a2 2 0 11-4 0 2 2 0 014 0zM7 19a2 2 0 100 4 2 2 0 000-4z" />
                 </svg>
                 Weekly Growth Tracker
@@ -533,7 +760,7 @@
                     onChange={(e) =>
                       setWeeklyData({ ...weeklyData, [field]: e.target.value })
                     }
-                    className="p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 text-gray-700 outline-none"
+                    className="p-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 text-gray-700 dark:text-gray-200 dark:bg-gray-600 outline-none"
                     min="0"
                   />
                 ))}
@@ -546,14 +773,14 @@
                   <canvas id={`chart-${client.id}`} className="w-full h-full"></canvas>
                 </div>
               ) : (
-                <p className="text-gray-500 text-center py-4">No weekly growth data available yet. Add some above!</p>
+                <p className="text-gray-500 dark:text-gray-400 text-center py-4">No weekly growth data available yet. Add some above!</p>
               )}
             </section>
 
             {/* Notes */}
-            <section className="mb-8 p-6 bg-indigo-50 rounded-lg shadow-inner border border-indigo-100">
-              <h3 className="text-2xl font-semibold text-indigo-800 mb-4 flex items-center">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7 mr-2 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+            <section className="mb-8 p-6 bg-indigo-50 dark:bg-indigo-900/20 rounded-lg shadow-inner border border-indigo-100 dark:border-indigo-900">
+              <h3 className="text-2xl font-semibold text-indigo-800 dark:text-indigo-300 mb-4 flex items-center">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7 mr-2 text-indigo-600 dark:text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
                 </svg>
                 Notes
@@ -561,7 +788,7 @@
               <textarea
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
-                className="w-full p-3 border border-gray-300 rounded-lg mb-4 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-gray-700 outline-none"
+                className="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-lg mb-4 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-gray-700 dark:text-gray-200 dark:bg-gray-600 outline-none"
                 rows="6"
                 placeholder="Add any specific notes or observations for this client..."
               />
@@ -575,7 +802,7 @@
     }
 
     // Team Tips Component
-    function TeamTips({ suggestions, setSuggestions }) {
+    function TeamTips({ suggestions, setSuggestions, isDarkMode }) {
       const [newSuggestion, setNewSuggestion] = useState('');
 
       const submitSuggestion = () => {
@@ -595,30 +822,30 @@
       };
 
       return (
-        <div className="max-w-2xl mx-auto bg-white p-8 rounded-xl shadow-2xl">
-          <h2 className="text-3xl font-semibold text-gray-800 mb-6">Team Tips & Suggestions</h2>
+        <div className="max-w-2xl mx-auto bg-white dark:bg-gray-800 p-8 rounded-xl shadow-2xl dark:shadow-none">
+          <h2 className="text-3xl font-semibold text-gray-800 dark:text-gray-100 mb-6">Team Tips & Suggestions</h2>
           <textarea
             value={newSuggestion}
             onChange={(e) => setNewSuggestion(e.target.value)}
             placeholder="Share a new idea, tool, or strategy with the team lead..."
-            className="w-full p-3 border border-gray-300 rounded-lg mb-4 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-700 outline-none"
+            className="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-lg mb-4 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-700 dark:text-gray-200 dark:bg-gray-600 outline-none"
             rows="5"
           />
           <button onClick={submitSuggestion} className="bg-blue-600 text-white px-5 py-3 rounded-lg shadow-md hover:bg-blue-700 transition-colors duration-200 font-semibold mb-8">
             Submit to Lead
           </button>
           <div>
-            <h3 className="text-2xl font-semibold text-gray-800 mb-4">Approved Tips & Pending Suggestions</h3>
+            <h3 className="text-2xl font-semibold text-gray-800 dark:text-gray-100 mb-4">Approved Tips & Pending Suggestions</h3>
             {suggestions.length === 0 ? (
-              <p className="text-gray-500 text-center py-6">No suggestions submitted yet.</p>
+              <p className="text-gray-500 dark:text-gray-400 text-center py-6">No suggestions submitted yet.</p>
             ) : (
               suggestions
                 .filter((s) => s.status === 'approved' || currentUser.role === 'admin')
                 .sort((a, b) => new Date(b.date) - new Date(a.date)) // Sort by newest first
                 .map((suggestion) => (
-                  <div key={suggestion.id} className="bg-gray-50 p-4 rounded-lg shadow-sm mb-3 border border-gray-200">
-                    <p className="text-gray-800 text-lg mb-2">{suggestion.text}</p>
-                    <p className="text-sm text-gray-500">
+                  <div key={suggestion.id} className="bg-gray-50 dark:bg-gray-700 p-4 rounded-lg shadow-sm mb-3 border border-gray-200 dark:border-gray-600">
+                    <p className="text-gray-800 dark:text-gray-200 text-lg mb-2">{suggestion.text}</p>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">
                       By <span className="font-medium">{suggestion.user}</span> on{' '}
                       {new Date(suggestion.date).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}
                       {currentUser.role === 'admin' && (
@@ -638,7 +865,7 @@
     }
 
     // Admin Panel Component
-    function AdminPanel({ clients, suggestions, setSuggestions }) {
+    function AdminPanel({ clients, suggestions, setSuggestions, exportClientSummaryToXLSX, exportSuggestionsToXLSX, importFromXLSX, isDarkMode }) {
       const approveSuggestion = (id) => {
         setSuggestions(
           suggestions.map((s) => (s.id === id ? { ...s, status: 'approved' } : s))
@@ -664,26 +891,77 @@
       const sortedDates = Object.keys(groupedDailyActivity).sort((a, b) => new Date(b) - new Date(a)); // Newest date first
 
       return (
-        <div className="max-w-3xl mx-auto bg-white p-8 rounded-xl shadow-2xl">
-          <h2 className="text-3xl font-semibold text-gray-800 mb-6">Admin Panel</h2>
+        <div className="max-w-3xl mx-auto bg-white dark:bg-gray-800 p-8 rounded-xl shadow-2xl dark:shadow-none">
+          <h2 className="text-3xl font-semibold text-gray-800 dark:text-gray-100 mb-6">Admin Panel</h2>
+
+          {/* Data Management Section */}
+          <section className="mb-8 p-6 bg-blue-50 dark:bg-blue-900/20 rounded-lg shadow-inner border border-blue-100 dark:border-blue-900">
+            <h3 className="text-2xl font-semibold text-blue-800 dark:text-blue-300 mb-4 flex items-center">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7 mr-2 text-blue-600 dark:text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M8 9l4-4 4 4m0 6l-4 4-4-4" />
+              </svg>
+              Data Management (XLSX/CSV)
+            </h3>
+            <p className="text-gray-700 dark:text-gray-300 mb-4 text-sm">
+              Export data as Excel files for easy sharing and backup. You can also import data, but be aware that importing will attempt to match columns and **overwrite** existing data.
+            </p>
+            <div className="flex flex-col sm:flex-row gap-4 justify-center mb-6">
+              <button
+                onClick={exportClientSummaryToXLSX}
+                className="flex-grow bg-emerald-600 text-white px-5 py-3 rounded-lg shadow-md hover:bg-emerald-700 transition-colors duration-200 font-semibold"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2 inline-block" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                </svg>
+                Export Client Summary
+              </button>
+              <button
+                onClick={exportSuggestionsToXLSX}
+                className="flex-grow bg-emerald-600 text-white px-5 py-3 rounded-lg shadow-md hover:bg-emerald-700 transition-colors duration-200 font-semibold"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2 inline-block" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                </svg>
+                Export Suggestions
+              </button>
+            </div>
+            <div className="flex flex-col items-center">
+              <label htmlFor="import-file-xlsx" className="bg-orange-600 text-white px-5 py-3 rounded-lg shadow-md hover:bg-orange-700 transition-colors duration-200 font-semibold text-center cursor-pointer flex items-center justify-center w-full max-w-sm">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2 inline-block" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                </svg>
+                Import Data (XLSX/CSV)
+                <input
+                  type="file"
+                  id="import-file-xlsx"
+                  accept=".xlsx,.xls,.csv"
+                  onChange={importFromXLSX}
+                  className="hidden"
+                />
+              </label>
+              <p className="text-gray-500 dark:text-gray-400 text-xs mt-2 text-center max-w-sm">
+                Imports the first sheet of an Excel/CSV file. Ensure columns broadly match exported format (e.g., "Client Name", "Text").
+              </p>
+            </div>
+          </section>
 
           {/* Pending Suggestions */}
           <section className="mb-8">
-            <h3 className="text-2xl font-semibold text-gray-800 mb-4 flex items-center">
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7 mr-2 text-yellow-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+            <h3 className="text-2xl font-semibold text-gray-800 dark:text-gray-100 mb-4 flex items-center">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7 mr-2 text-yellow-600 dark:text-yellow-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
               </svg>
               Pending Suggestions
             </h3>
             <div className="space-y-4">
               {pendingSuggestions.length === 0 ? (
-                <p className="text-gray-500 text-center py-4">No pending suggestions.</p>
+                <p className="text-gray-500 dark:text-gray-400 text-center py-4">No pending suggestions.</p>
               ) : (
                 pendingSuggestions.map((suggestion) => (
-                  <div key={suggestion.id} className="bg-yellow-50 p-4 rounded-lg shadow-sm border border-yellow-200 flex justify-between items-center flex-wrap gap-3">
+                  <div key={suggestion.id} className="bg-yellow-50 dark:bg-yellow-900/20 p-4 rounded-lg shadow-sm border border-yellow-200 dark:border-yellow-900 flex justify-between items-center flex-wrap gap-3">
                     <div>
-                      <p className="text-gray-800 text-lg">{suggestion.text}</p>
-                      <p className="text-sm text-gray-500">By {suggestion.user} on {new Date(suggestion.date).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}</p>
+                      <p className="text-gray-800 dark:text-gray-200 text-lg">{suggestion.text}</p>
+                      <p className="text-sm text-gray-500 dark:text-gray-400">By {suggestion.user} on {new Date(suggestion.date).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}</p>
                     </div>
                     <button
                       onClick={() => approveSuggestion(suggestion.id)}
@@ -699,31 +977,34 @@
 
           {/* Team Activity */}
           <section>
-            <h3 className="text-2xl font-semibold text-gray-800 mb-4 flex items-center">
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7 mr-2 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+            <h3 className="text-2xl font-semibold text-gray-800 dark:text-gray-100 mb-4 flex items-center">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7 mr-2 text-blue-600 dark:text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
               </svg>
               Team Daily Activity
             </h3>
-            <div className="space-y-6 max-h-96 overflow-y-auto p-4 border border-gray-200 rounded-lg bg-gray-50 shadow-inner">
+            <div className="space-y-6 max-h-96 overflow-y-auto p-4 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50 dark:bg-gray-700 shadow-inner">
               {sortedDates.length === 0 ? (
-                <p className="text-gray-500 text-center py-4">No daily activity recorded yet.</p>
+                <p className="text-gray-500 dark:text-gray-400 text-center py-4">No daily activity recorded yet.</p>
               ) : (
                 sortedDates.map(date => (
-                  <div key={date} className="bg-white p-4 rounded-lg shadow-sm border border-gray-100">
-                    <h4 className="text-xl font-semibold text-blue-700 mb-3 pb-2 border-b border-gray-200">
+                  <div key={date} className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm border border-gray-100 dark:border-gray-700">
+                    <h4 className="text-xl font-semibold text-blue-700 dark:text-blue-300 mb-3 pb-2 border-b border-gray-200 dark:border-gray-600">
                       {new Date(date).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
                     </h4>
                     <div className="space-y-3">
                       {Object.keys(groupedDailyActivity[date]).sort().map(clientName => (
-                        <div key={clientName} className="pl-4 border-l-2 border-blue-300">
-                          <h5 className="text-lg font-medium text-gray-800">{clientName}</h5>
-                          <ul className="list-disc list-inside text-gray-700 text-sm">
+                        <div key={clientName} className="pl-4 border-l-2 border-blue-300 dark:border-blue-600">
+                          <h5 className="text-lg font-medium text-gray-800 dark:text-gray-200 mb-1">{clientName}</h5>
+                          <ul className="list-disc list-inside text-gray-700 dark:text-gray-300 text-sm">
                             {groupedDailyActivity[date][clientName].map((task, idx) => (
-                              <li key={idx} className={`${task.completed ? 'text-green-600' : 'text-red-600'}`}>
-                                {task.type === 'daily' ? 'Daily:' : 'Post:'}{' '}
-                                {task.key.replace(/([A-Z])/g, ' $1').toLowerCase().replace(/^\w/, c => c.toUpperCase())}
-                                {task.completed ? ' (Completed)' : ' (Pending)'}
+                              <li key={idx} className={`${task.completed ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'} flex items-start`}>
+                                <span className="mr-1">{task.type === 'daily' ? 'Daily:' : 'Post:'}</span>
+                                <span>
+                                  {task.key.replace(/([A-Z])/g, ' $1').toLowerCase().replace(/^\w/, c => c.toUpperCase())}
+                                  {task.completed ? ' (Completed)' : ' (Pending)'}
+                                  {task.userName && <span className="ml-2 text-gray-500 dark:text-gray-400 font-normal italic text-xs"> (by {task.userName})</span>}
+                                </span>
                               </li>
                             ))}
                           </ul>
